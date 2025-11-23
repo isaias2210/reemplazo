@@ -395,28 +395,41 @@ def reemplazo():
     mensaje = ""
 
     if request.method == "POST" and encabezado:
+
         accion = request.form.get("accion")
         cedula = request.form.get("cedula", "").strip()
         idx = {n: i for i, n in enumerate(encabezado)}
 
-        # Buscar pendientes
+        # Buscar
         if accion == "buscar":
             for r in filas:
-                if (len(r) >= len(encabezado)
-                    and r[idx["CEDULA_ESTUDIANTE"]] == cedula
+                if (r[idx["CEDULA_ESTUDIANTE"]] == cedula
                     and r[idx["ESTADO"]] != "REEMPLAZO RECIBIDO"):
                     pendientes.append(r)
 
-        # Marcar como recibido 🔥🔥🔥
+        # Marcar como recibido
         elif accion == "marcar":
-            cheque = request.form.get("cheque")
-            if actualizar_estado_en_historial(cedula, cheque):
-                mensaje = "Reemplazo marcado como recibido correctamente."
+
+            cheques = request.form.getlist("cheques[]")
+
+            if not cheques:
+                mensaje = "Debes seleccionar al menos un cheque."
             else:
-                mensaje = "No se pudo actualizar el estado."
-            
-            # Volver a cargar después del cambio
+                contador = 0
+                for cheque in cheques:
+                    exito = actualizar_estado_en_historial(cedula, cheque)
+                    if exito:
+                        contador += 1
+
+                if contador > 0:
+                    mensaje = f"{contador} cheque(s) marcados como REEMPLAZO RECIBIDO."
+                else:
+                    mensaje = "No se pudo actualizar ningún cheque."
+
+            # Volver a cargar historial para actualizar pantalla
             encabezado, filas = leer_historial()
+            idx = {n: i for i, n in enumerate(encabezado)}
+
             pendientes = [
                 r for r in filas
                 if r[idx["CEDULA_ESTUDIANTE"]] == cedula
@@ -429,6 +442,8 @@ def reemplazo():
         pendientes=pendientes,
         cedula=cedula,
         mensaje=mensaje
+    )
+
     )
 
 
