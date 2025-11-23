@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 import requests
 from io import StringIO, BytesIO
 from datetime import datetime
@@ -10,6 +11,8 @@ from flask import (
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 
 # =========================
 # CONFIG
@@ -18,51 +21,77 @@ import pandas as pd
 app = Flask(__name__)
 app.secret_key = "super-secret-paseu"
 
-# URLs permanentes en GitHub RAW
-CSV_URL = "https://raw.githubusercontent.com/isaias2210/reemplazo/main/historial_paseu.csv"
+# PLANTILLA en GitHub RAW (si quieres seguir usándola así)
 PLANTILLA_URL = "https://raw.githubusercontent.com/isaias2210/reemplazo/main/plantilla.docx"
 
 # Ruta temporal en Render
 TEMP_DIR = "/tmp"
-HISTORIAL_PATH = os.path.join(TEMP_DIR, "historial_paseu.csv")
 PLANTILLA_PATH = os.path.join(TEMP_DIR, "plantilla.docx")
-SALIDAS_DIR = TEMP_DIR
+
+# Google Sheets
+DEFAULT_SHEET_ID = "1ahOfi2rjJKh7onjiqcGXRnT-ZysoKaRtuSd0iPNCqUw"
+SHEET_NAME = "ifarhu"  # nombre de la pestaña en el Sheet
+
 
 # =========================
-# DESCARGAR ARCHIVOS PERMANENTES DESDE GITHUB
+# GOOGLE SHEETS HELPERS
 # =========================
 
-def cargar_csv():
-    """Descarga historial desde GitHub RAW si no existe localmente."""
-    if not os.path.exists(HISTORIAL_PATH):
-        print("Descargando historial CSV...")
-        r = requests.get(CSV_URL)
-        if r.status_code != 200:
-            print("No se pudo descargar historial CSV")
-            return pd.DataFrame()
-        with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
-            f.write(r.text)
-    return pd.read_csv(HISTORIAL_PATH, sep=";")
+def get_sheet():
+    """
+    Devuelve el worksheet de Google Sheets.
+    Usa:
+      - GOOGLE_CREDENTIALS  (JSON de service account) en variables de entorno
+      - SHEET_ID (opcional) si quieres cambiar el sheet desde Render
+    """
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS") or os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    sheet_id = os.environ.get("SHEET_ID", DEFAULT_SHEET_ID)
 
-def guardar_csv(df):
-    """Guarda CSV en disco local y además sincroniza a GitHub RAW (opcional futuro)."""
-    df.to_csv(HISTORIAL_PATH, sep=";", index=False)
+    if not creds_json:
+        raise RuntimeError("Faltan las credenciales en GOOGLE_CREDENTIALS en Render.")
+
+    creds_dict = json.loads(creds_json)
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+
+    sh = client.open_by_key(sheet_id)
+    try:
+        ws = sh.worksheet(SHEET_NAME)
+    except gspread.exceptions.WorksheetNotFound:
+        # Si no existe la pestaña 'ifarhu', usa la primera hoja
+        ws = sh.sheet1
+
+    return ws
+
+
+# =========================
+# DESCARGAR PLANTILLA
+# =========================
 
 def cargar_plantilla():
-    """Descarga plantilla.docx desde GitHub RAW."""
+    """Descarga plantilla.docx desde GitHub RAW a /tmp si no existe."""
     if not os.path.exists(PLANTILLA_PATH):
         print("Descargando plantilla.docx...")
         r = requests.get(PLANTILLA_URL)
+        r.raise_for_status()
         with open(PLANTILLA_PATH, "wb") as f:
             f.write(r.content)
     return PLANTILLA_PATH
+
 
 # =========================
 # UTILIDADES
 # =========================
 
 def limpiar(s: str) -> str:
-    return " ".join(s.replace("\t"," ").split())
+    return " ".join(s.replace("\t", " ").split())
+
 
 def extraer_acudiente(texto: str):
     t = texto.replace("\t", " ")
@@ -74,10 +103,11 @@ def extraer_acudiente(texto: str):
         }
     return {"NOMBRE_ACUDIENTE": "", "CEDULA_ACUDIENTE": ""}
 
+
 def parse_tabla_cheques(texto: str):
     lineas = [l for l in texto.splitlines() if l.strip()]
     header_idx = None
-    for i,line in enumerate(lineas):
+    for i, line in enumerate(lineas):
         if ("Regional" in line and "Grado" in line and "Centro" in line
                 and "ESTUDIANTE" in line):
             header_idx = i
@@ -117,9 +147,10 @@ def parse_tabla_cheques(texto: str):
 
     return filas
 
+
 def periodo_a_checks(periodo: str):
-    periodo = periodo.replace(" ","")
-    d = {"PRIMER_PAGO":"","SEGUNDO_PAGO":"","TERCER_PAGO":""}
+    periodo = periodo.replace(" ", "")
+    d = {"PRIMER_PAGO": "", "SEGUNDO_PAGO": "", "TERCER_PAGO": ""}
     if periodo.startswith("2-"):
         d["PRIMER_PAGO"] = "✓"
     elif periodo.startswith("3-"):
@@ -128,36 +159,56 @@ def periodo_a_checks(periodo: str):
         d["TERCER_PAGO"] = "✓"
     return d
 
+
 # =========================
-# HISTORIAL
+# HISTORIAL (Google Sheets)
 # =========================
 
 def leer_historial():
-    if not os.path.exists(HISTORIAL_PATH):
+    """
+    Lee todo el historial desde Google Sheets.
+    Supone que la primera fila es encabezado.
+    """
+    try:
+        ws = get_sheet()
+        datos = ws.get_all_values()
+        if not datos:
+            return [], []
+        encabezado = datos[0]
+        filas = datos[1:]
+        return encabezado, filas
+    except Exception as e:
+        print("Error leyendo historial de Sheets:", e)
         return [], []
-    df = cargar_csv()
-    encabezado = list(df.columns)
-    filas = df.values.tolist()
-    return encabezado, filas
+
 
 def guardar_en_historial(datos, telefono, periodo):
-    df = cargar_csv()
-    nueva = {
-        "FECHA": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "NOMBRE_ESTUDIANTE": datos["NOMBRE_ESTUDIANTE"],
-        "CEDULA_ESTUDIANTE": datos["CEDULA_ESTUDIANTE"],
-        "TELEFONO": telefono,
-        "ESTADO": "PENDIENTE",
-        "NOMBRE_ACUDIENTE": datos["NOMBRE_ACUDIENTE"],
-        "CEDULA_ACUDIENTE": datos["CEDULA_ACUDIENTE"],
-        "PLANILLA": datos["PLANILLA"],
-        "CHEQUE": datos["CHEQUE"],
-        "NIVEL": datos["NIVEL"],
-        "COLEGIO": datos["COLEGIO"],
-        "PERIODO": periodo
-    }
-    df = pd.concat([df, pd.DataFrame([nueva])], ignore_index=True)
-    guardar_csv(df)
+    """
+    Agrega una fila nueva al historial en Google Sheets.
+    Columnas esperadas:
+    FECHA, NOMBRE_ESTUDIANTE, CEDULA_ESTUDIANTE, TELEFONO, ESTADO,
+    NOMBRE_ACUDIENTE, CEDULA_ACUDIENTE, PLANILLA, CHEQUE, NIVEL, COLEGIO, PERIODO
+    """
+    try:
+        ws = get_sheet()
+        nueva = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datos.get("NOMBRE_ESTUDIANTE", ""),
+            datos.get("CEDULA_ESTUDIANTE", ""),
+            telefono,
+            "PENDIENTE",
+            datos.get("NOMBRE_ACUDIENTE", ""),
+            datos.get("CEDULA_ACUDIENTE", ""),
+            datos.get("PLANILLA", ""),
+            datos.get("CHEQUE", ""),
+            datos.get("NIVEL", ""),
+            datos.get("COLEGIO", ""),
+            periodo
+        ]
+        ws.append_row(nueva, value_input_option="USER_ENTERED")
+    except Exception as e:
+        print("Error guardando historial en Sheets:", e)
+
 
 # =========================
 # DOCX
@@ -165,10 +216,10 @@ def guardar_en_historial(datos, telefono, periodo):
 
 def formatear_variables(doc, datos):
     campos = [
-        "CHEQUE","PLANILLA","NIVEL","COLEGIO",
-        "NOMBRE_ESTUDIANTE","CEDULA_ESTUDIANTE",
-        "NOMBRE_ACUDIENTE","CEDULA_ACUDIENTE",
-        "PRIMER_PAGO","SEGUNDO_PAGO","TERCER_PAGO",
+        "CHEQUE", "PLANILLA", "NIVEL", "COLEGIO",
+        "NOMBRE_ESTUDIANTE", "CEDULA_ESTUDIANTE",
+        "NOMBRE_ACUDIENTE", "CEDULA_ACUDIENTE",
+        "PRIMER_PAGO", "SEGUNDO_PAGO", "TERCER_PAGO",
         "FECHA_ACTUAL"
     ]
     for table in doc.tables:
@@ -182,10 +233,11 @@ def formatear_variables(doc, datos):
                         for k in campos:
                             ph = f"{{{{{k}}}}}"
                             if ph in txt:
-                                txt = txt.replace(ph, datos.get(k,""))
+                                txt = txt.replace(ph, datos.get(k, ""))
                         r.text = txt
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         r.bold = True
+
 
 def rellenar_docx(fila, acudiente, telefono):
     plantilla = cargar_plantilla()
@@ -211,7 +263,7 @@ def rellenar_docx(fila, acudiente, telefono):
             txt = r.text
             if not txt:
                 continue
-            for k,v in datos.items():
+            for k, v in datos.items():
                 ph = f"{{{{{k}}}}}"
                 if ph in txt:
                     txt = txt.replace(ph, v)
@@ -229,11 +281,12 @@ def rellenar_docx(fila, acudiente, telefono):
 
     return ruta
 
+
 # =========================
 # RUTAS
 # =========================
 
-@app.route("/", methods=["GET","POST"])
+@app.route("/", methods=["GET", "POST"])
 def index():
     texto = ""
     telefono = ""
@@ -241,8 +294,8 @@ def index():
     mensaje = ""
 
     if request.method == "POST":
-        texto = request.form.get("texto","")
-        telefono = request.form.get("telefono","")
+        texto = request.form.get("texto", "")
+        telefono = request.form.get("telefono", "")
         accion = request.form.get("accion")
 
         filas = parse_tabla_cheques(texto)
@@ -254,12 +307,14 @@ def index():
         if accion == "generar" and filas:
             seleccion = request.form.getlist("fila_idx")
             if not seleccion:
-                flash("Debes seleccionar al menos un cheque.","error")
+                flash("Debes seleccionar al menos un cheque.", "error")
             else:
                 rutas = []
                 for idx in seleccion:
-                    try: i = int(idx)
-                    except: continue
+                    try:
+                        i = int(idx)
+                    except:
+                        continue
                     if 0 <= i < len(filas):
                         rutas.append(rellenar_docx(filas[i], acudiente, telefono))
 
@@ -267,60 +322,67 @@ def index():
                     archivos = [os.path.basename(r) for r in rutas]
                     return render_template("descargas.html", archivos=archivos)
 
-                flash("No se pudo generar ningún documento.","error")
+                flash("No se pudo generar ningún documento.", "error")
 
     return render_template("index.html", texto=texto, telefono=telefono, filas=filas, mensaje=mensaje)
+
 
 @app.route("/descargar/<filename>")
 def descargar(filename):
     ruta = os.path.join(TEMP_DIR, filename)
     return send_file(ruta, as_attachment=True)
 
+
 @app.route("/historial")
 def historial():
     encabezado, filas = leer_historial()
     return render_template("historial.html", encabezado=encabezado, filas=filas)
 
-@app.route("/buscar", methods=["GET","POST"])
+
+@app.route("/buscar", methods=["GET", "POST"])
 def buscar():
-    resultados=[]
-    cedula=""
+    resultados = []
+    cedula = ""
     encabezado, filas = leer_historial()
 
-    if request.method=="POST":
-        cedula = request.form.get("cedula","").strip()
+    if request.method == "POST":
+        cedula = request.form.get("cedula", "").strip()
         if cedula and encabezado:
-            idx = {n:i for i,n in enumerate(encabezado)}
+            idx = {n: i for i, n in enumerate(encabezado)}
             for r in filas:
-                if len(r)>=len(encabezado) and r[idx["CEDULA_ESTUDIANTE"]]==cedula:
+                if len(r) >= len(encabezado) and r[idx["CEDULA_ESTUDIANTE"]] == cedula:
                     resultados.append(r)
 
     return render_template("buscar.html", encabezado=encabezado, resultados=resultados, cedula=cedula)
 
-@app.route("/reemplazo", methods=["GET","POST"])
+
+@app.route("/reemplazo", methods=["GET", "POST"])
 def reemplazo():
     encabezado, filas = leer_historial()
-    pendientes=[]
-    cedula=""
-    mensaje=""
+    pendientes = []
+    cedula = ""
+    mensaje = ""
 
-    if request.method=="POST" and encabezado:
-        cedula = request.form.get("cedula","").strip()
+    if request.method == "POST" and encabezado:
+        cedula = request.form.get("cedula", "").strip()
         accion = request.form.get("accion")
-        idx = {n:i for i,n in enumerate(encabezado)}
+        idx = {n: i for i, n in enumerate(encabezado)}
 
-        if accion=="buscar":
+        if accion == "buscar":
             for r in filas:
-                if (len(r)>=len(encabezado)
-                    and r[idx["CEDULA_ESTUDIANTE"]]==cedula
-                    and r[idx["ESTADO"]]!="REEMPLAZO RECIBIDO"):
+                if (len(r) >= len(encabezado)
+                    and r[idx["CEDULA_ESTUDIANTE"]] == cedula
+                    and r[idx["ESTADO"]] != "REEMPLAZO RECIBIDO"):
                     pendientes.append(r)
 
-    return render_template("reemplazo.html",
-                           encabezado=encabezado,
-                           pendientes=pendientes,
-                           cedula=cedula,
-                           mensaje=mensaje)
+    return render_template(
+        "reemplazo.html",
+        encabezado=encabezado,
+        pendientes=pendientes,
+        cedula=cedula,
+        mensaje=mensaje
+    )
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
