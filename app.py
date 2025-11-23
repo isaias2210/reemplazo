@@ -208,6 +208,37 @@ def guardar_en_historial(datos, telefono, periodo):
         ws.append_row(nueva, value_input_option="USER_ENTERED")
     except Exception as e:
         print("Error guardando historial en Sheets:", e)
+def actualizar_estado_en_historial(cedula, cheque):
+    """
+    Busca en Google Sheets la fila con esa cédula y cheque
+    y cambia el ESTADO a 'REEMPLAZO RECIBIDO'
+    """
+    try:
+        ws = get_sheet()
+        datos = ws.get_all_values()
+
+        if not datos:
+            return False
+        
+        encabezado = datos[0]
+        filas = datos[1:]
+
+        # Índices
+        idx = {n: i for i, n in enumerate(encabezado)}
+
+        # Buscar fila correcta
+        for row_number, r in enumerate(filas, start=2):  # filas empiezan en 2
+            if (r[idx["CEDULA_ESTUDIANTE"]] == cedula
+                and r[idx["CHEQUE"]] == cheque):
+
+                ws.update_cell(row_number, idx["ESTADO"] + 1, "REEMPLAZO RECIBIDO")
+                return True
+
+        return False
+
+    except Exception as e:
+        print("Error actualizando estado:", e)
+        return False
 
 
 # =========================
