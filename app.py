@@ -395,16 +395,33 @@ def reemplazo():
     mensaje = ""
 
     if request.method == "POST" and encabezado:
-        cedula = request.form.get("cedula", "").strip()
         accion = request.form.get("accion")
+        cedula = request.form.get("cedula", "").strip()
         idx = {n: i for i, n in enumerate(encabezado)}
 
+        # Buscar pendientes
         if accion == "buscar":
             for r in filas:
                 if (len(r) >= len(encabezado)
                     and r[idx["CEDULA_ESTUDIANTE"]] == cedula
                     and r[idx["ESTADO"]] != "REEMPLAZO RECIBIDO"):
                     pendientes.append(r)
+
+        # Marcar como recibido 🔥🔥🔥
+        elif accion == "marcar":
+            cheque = request.form.get("cheque")
+            if actualizar_estado_en_historial(cedula, cheque):
+                mensaje = "Reemplazo marcado como recibido correctamente."
+            else:
+                mensaje = "No se pudo actualizar el estado."
+            
+            # Volver a cargar después del cambio
+            encabezado, filas = leer_historial()
+            pendientes = [
+                r for r in filas
+                if r[idx["CEDULA_ESTUDIANTE"]] == cedula
+                and r[idx["ESTADO"]] != "REEMPLAZO RECIBIDO"
+            ]
 
     return render_template(
         "reemplazo.html",
