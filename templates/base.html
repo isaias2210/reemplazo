@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}PASE-U{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-title">PASE-U Web</div>
+  <nav class="topbar-nav">
+    <a href="{{ url_for('index') }}">Inicio</a>
+    <a href="{{ url_for('historial') }}">Historial</a>
+    <a href="{{ url_for('buscar') }}">Buscar cédula</a>
+    <a href="{{ url_for('reemplazo') }}">Reemplazo recibido</a>
+    <a href="https://tudominio.com" target="_blank"
+       style="
+           display:block;
+           text-align:center;
+           background:#0ea5e9;
+           color:white;
+           padding:10px;
+           border-radius:6px;
+           font-weight:bold;
+           text-decoration:none;
+           margin-top:10px;
+           box-shadow:0 2px 5px rgba(0,0,0,0.2);
+       ">
+        Pase-U
+    </a>
+</div>
+
+  </nav>
+</header>
+
+<main class="main">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-container">
+        {% for category, msg in messages %}
+          <div class="flash flash-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}PASE-U - Inicio{% endblock %}
+
+{% block content %}
+<div class="grid">
+  <section class="card card-texto">
+    <h2>Pegar información PASE-U / IFARHU</h2>
+    <form method="post">
+      <label class="field-label">Texto completo (tabla + información del estudiante)</label>
+      <textarea name="texto" rows="20" class="textarea">{{ texto }}</textarea>
+
+      <label class="field-label">Teléfono</label>
+      <input type="text" name="telefono" value="{{ telefono }}" class="input">
+
+      <div class="button-row">
+        <button type="submit" name="accion" value="procesar" class="btn btn-secondary">
+          Procesar texto
+        </button>
+        <button type="submit" name="accion" value="generar" class="btn btn-primary">
+          Generar Word seleccionado(s)
+        </button>
+      </div>
+
+      {% if mensaje %}
+        <p class="msg-error">{{ mensaje }}</p>
+      {% endif %}
+
+      {% if filas %}
+      <h3>Cheques detectados</h3>
+      <div class="scroll-table">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Sel.</th>
+              <th>#</th>
+              <th>Periodo</th>
+              <th>Cheque</th>
+              <th>Planilla</th>
+              <th>Grado</th>
+              <th>Centro</th>
+              <th>Cédula</th>
+              <th>Estudiante</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in filas %}
+            <tr>
+              <td>
+                <input type="checkbox" name="fila_idx" value="{{ loop.index0 }}">
+              </td>
+              <td>{{ loop.index }}</td>
+              <td>{{ fila.periodo }}</td>
+              <td>{{ fila.cheque }}</td>
+              <td>{{ fila.planilla }}</td>
+              <td>{{ fila.grado }}</td>
+              <td>{{ fila.centro }}</td>
+              <td>{{ fila.cedula }}</td>
+              <td>{{ fila.nombre }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </form>
+  </section>
+
+  <section class="card card-info">
+    <h2>Instrucciones rápidas</h2>
+    <ol>
+      <li>Pega el texto completo:
+        <ul>
+          <li>La tabla grande con todos los cheques.</li>
+          <li>El bloque de “Información del Estudiante” con R.Legal.</li>
+        </ul>
+      </li>
+      <li>Escribe el teléfono.</li>
+      <li>Haz clic en <strong>Procesar texto</strong>.</li>
+      <li>Marca uno o varios cheques.</li>
+      <li>Haz clic en <strong>Generar Word seleccionado(s)</strong>.</li>
+      <li>
+        Se crean los Word en la carpeta <code>salidas</code> y se abren
+        automáticamente en el servidor (tu PC).
+      </li>
+    </ol>
+  </section>
+</div>
+{% endblock %}

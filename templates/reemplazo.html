@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Reemplazo recibido{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2>Marcar cheques como REEMPLAZO RECIBIDO</h2>
+
+  <form method="post" class="form-inline">
+    <input type="hidden" name="accion" value="buscar">
+    <label>Cédula estudiante:</label>
+    <input type="text" name="cedula" value="{{ cedula }}" class="input">
+    <button type="submit" class="btn btn-primary">Buscar cheques pendientes</button>
+  </form>
+
+  {% if cedula %}
+    <h3>Pendientes para {{ cedula }}</h3>
+    {% if pendientes %}
+      <form method="post">
+        <input type="hidden" name="accion" value="marcar">
+        <input type="hidden" name="cedula" value="{{ cedula }}">
+        <div class="scroll-table">
+          <table class="table table-compact">
+            <thead>
+              <tr>
+                <th>Sel.</th>
+                {% for col in encabezado %}
+                  <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for fila in pendientes %}
+              <tr>
+                <td>
+                  <!-- CHEQUE está en columna con nombre "CHEQUE" -->
+                  {% set idx_cheque = encabezado.index('CHEQUE') %}
+                  <input type="checkbox" name="cheque_sel" value="{{ fila[idx_cheque] }}">
+                </td>
+                {% for valor in fila %}
+                  <td>{{ valor }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button type="submit" class="btn btn-success">
+          Marcar seleccionados como REEMPLAZO RECIBIDO
+        </button>
+      </form>
+    {% else %}
+      <p>No hay cheques pendientes para esa cédula o ya se marcaron como REEMPLAZO RECIBIDO.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

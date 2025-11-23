@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Historial PASE-U{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2>Historial de registros</h2>
+  {% if not encabezado %}
+    <p>No hay historial todavía.</p>
+  {% else %}
+    <div class="scroll-table">
+      <table class="table table-compact">
+        <thead>
+          <tr>
+            {% for col in encabezado %}
+              <th>{{ col }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in filas %}
+          <tr>
+            {% for valor in fila %}
+              <td>{{ valor }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

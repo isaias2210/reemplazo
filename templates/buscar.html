@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Buscar por cédula{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2>Buscar por cédula del estudiante</h2>
+
+  <form method="post" class="form-inline">
+    <label>Cédula:</label>
+    <input type="text" name="cedula" value="{{ cedula }}" class="input">
+    <button type="submit" class="btn btn-primary">Buscar</button>
+  </form>
+
+  {% if cedula %}
+    <h3>Resultados para {{ cedula }}</h3>
+    {% if resultados %}
+      <div class="scroll-table">
+        <table class="table table-compact">
+          <thead>
+            <tr>
+              {% for col in encabezado %}
+                <th>{{ col }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in resultados %}
+            <tr>
+              {% for valor in fila %}
+                <td>{{ valor }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p>No se encontraron registros para esa cédula.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+  <h2>Documentos generados</h2>
+  <p>Se generaron {{ archivos|length }} documento(s). Si el navegador bloquea ventanas emergentes, puede que tengas que permitirlas.</p>
+
+  <ul>
+    {% for fname in archivos %}
+      <li>
+        <a href="{{ url_for('descargar', filename=fname) }}" target="_blank">
+          Descargar {{ fname }}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<script>
+  // Intento de descarga automática de todos los archivos seleccionados
+  {% for fname in archivos %}
+    window.open("{{ url_for('descargar', filename=fname) }}", "_blank");
+  {% endfor %}
+</script>
+{% endblock %}
