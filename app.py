@@ -6,7 +6,7 @@ import requests
 from io import StringIO, BytesIO
 from datetime import datetime
 from flask import (
-    Flask, render_template, request, flash, send_file
+    Flask, render_template, request, flash, send_file, abort
 )
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -21,7 +21,29 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 app.secret_key = "super-secret-paseu"
 
-# PLANTILLA en GitHub RAW (si quieres seguir usándola así)
+# =========================
+# LISTA BLANCA DE IPs
+# =========================
+
+ALLOWED_IPS = {
+    "127.0.0.1",     # localhost
+    "181.195.XXX.XXX",  # <-- Cambia esto por tus IP reales
+    "190.140.XXX.XXX",
+}
+
+@app.before_request
+def bloquear_ips():
+    # Render usa proxy → obtener IP real
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    ip = ip.split(',')[0].strip()
+
+    print("IP detectada:", ip)  # se ve en logs de Render
+
+    if ip not in ALLOWED_IPS:
+        return abort(403)   # acceso prohibido
+
+
+# PLANTILLA en GitHub RAW
 PLANTILLA_URL = "https://raw.githubusercontent.com/isaias2210/reemplazo/main/plantilla.docx"
 
 # Ruta temporal en Render
@@ -30,7 +52,7 @@ PLANTILLA_PATH = os.path.join(TEMP_DIR, "plantilla.docx")
 
 # Google Sheets
 DEFAULT_SHEET_ID = "1ahOfi2rjJKh7onjiqcGXRnT-ZysoKaRtuSd0iPNCqUw"
-SHEET_NAME = "ifarhu"  # nombre de la pestaña en el Sheet
+SHEET_NAME = "ifarhu"  
 
 
 # =========================
@@ -38,12 +60,6 @@ SHEET_NAME = "ifarhu"  # nombre de la pestaña en el Sheet
 # =========================
 
 def get_sheet():
-    """
-    Devuelve el worksheet de Google Sheets.
-    Usa:
-      - GOOGLE_CREDENTIALS  (JSON de service account) en variables de entorno
-      - SHEET_ID (opcional) si quieres cambiar el sheet desde Render
-    """
     creds_json = os.environ.get("GOOGLE_CREDENTIALS") or os.environ.get("GOOGLE_CREDENTIALS_JSON")
     sheet_id = os.environ.get("SHEET_ID", DEFAULT_SHEET_ID)
 
@@ -64,7 +80,6 @@ def get_sheet():
     try:
         ws = sh.worksheet(SHEET_NAME)
     except gspread.exceptions.WorksheetNotFound:
-        # Si no existe la pestaña 'ifarhu', usa la primera hoja
         ws = sh.sheet1
 
     return ws
@@ -75,7 +90,6 @@ def get_sheet():
 # =========================
 
 def cargar_plantilla():
-    """Descarga plantilla.docx desde GitHub RAW a /tmp si no existe."""
     if not os.path.exists(PLANTILLA_PATH):
         print("Descargando plantilla.docx...")
         r = requests.get(PLANTILLA_URL)
@@ -161,14 +175,10 @@ def periodo_a_checks(periodo: str):
 
 
 # =========================
-# HISTORIAL (Google Sheets)
+# HISTORIAL
 # =========================
 
 def leer_historial():
-    """
-    Lee todo el historial desde Google Sheets.
-    Supone que la primera fila es encabezado.
-    """
     try:
         ws = get_sheet()
         datos = ws.get_all_values()
@@ -183,12 +193,6 @@ def leer_historial():
 
 
 def guardar_en_historial(datos, telefono, periodo):
-    """
-    Agrega una fila nueva al historial en Google Sheets.
-    Columnas esperadas:
-    FECHA, NOMBRE_ESTUDIANTE, CEDULA_ESTUDIANTE, TELEFONO, ESTADO,
-    NOMBRE_ACUDIENTE, CEDULA_ACUDIENTE, PLANILLA, CHEQUE, NIVEL, COLEGIO, PERIODO
-    """
     try:
         ws = get_sheet()
         nueva = [
@@ -207,12 +211,10 @@ def guardar_en_historial(datos, telefono, periodo):
         ]
         ws.append_row(nueva, value_input_option="USER_ENTERED")
     except Exception as e:
-        print("Error guardando historial en Sheets:", e)
+        print("Error guardando historial:", e)
+
+
 def actualizar_estado_en_historial(cedula, cheque):
-    """
-    Busca en Google Sheets la fila con esa cédula y cheque
-    y cambia el ESTADO a 'REEMPLAZO RECIBIDO'
-    """
     try:
         ws = get_sheet()
         datos = ws.get_all_values()
@@ -222,12 +224,9 @@ def actualizar_estado_en_historial(cedula, cheque):
         
         encabezado = datos[0]
         filas = datos[1:]
-
-        # Índices
         idx = {n: i for i, n in enumerate(encabezado)}
 
-        # Buscar fila correcta
-        for row_number, r in enumerate(filas, start=2):  # filas empiezan en 2
+        for row_number, r in enumerate(filas, start=2):
             if (r[idx["CEDULA_ESTUDIANTE"]] == cedula
                 and r[idx["CHEQUE"]] == cheque):
 
@@ -288,7 +287,6 @@ def rellenar_docx(fila, acudiente, telefono):
 
     datos.update(periodo_a_checks(fila["periodo"]))
 
-    # Párrafos
     for p in doc.paragraphs:
         for r in p.runs:
             txt = r.text
@@ -302,7 +300,6 @@ def rellenar_docx(fila, acudiente, telefono):
 
     formatear_variables(doc, datos)
 
-    # Archivo temporal
     filename = f"{fila['cedula']}_{fila['periodo']}_{fila['cheque']}.docx"
     filename = filename.replace("/", "-")
     ruta = os.path.join(TEMP_DIR, filename)
@@ -321,7 +318,7 @@ def rellenar_docx(fila, acudiente, telefono):
 def index():
     texto = ""
     telefono = ""
-    filas = []
+    filas = ""
     mensaje = ""
 
     if request.method == "POST":
@@ -400,14 +397,12 @@ def reemplazo():
         cedula = request.form.get("cedula", "").strip()
         idx = {n: i for i, n in enumerate(encabezado)}
 
-        # Buscar
         if accion == "buscar":
             for r in filas:
                 if (r[idx["CEDULA_ESTUDIANTE"]] == cedula
                     and r[idx["ESTADO"]] != "REEMPLAZO RECIBIDO"):
                     pendientes.append(r)
 
-        # Marcar como recibido
         elif accion == "marcar":
 
             cheques = request.form.getlist("cheques[]")
@@ -426,7 +421,6 @@ def reemplazo():
                 else:
                     mensaje = "No se pudo actualizar ningún cheque."
 
-            # Volver a cargar historial para actualizar pantalla
             encabezado, filas = leer_historial()
             idx = {n: i for i, n in enumerate(encabezado)}
 
@@ -443,5 +437,6 @@ def reemplazo():
         cedula=cedula,
         mensaje=mensaje
     )
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
