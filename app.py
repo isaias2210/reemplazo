@@ -26,7 +26,7 @@ app.secret_key = "super-secret-paseu"
 # =========================
 
 ALLOWED_IPS = {
-    "",     # localhost
+    "168.77.212.12",     # localhost
     "186.75.57.11",  # <-- Cambia esto por tus IP reales
     "190.140.XXX.XXX",
 }
